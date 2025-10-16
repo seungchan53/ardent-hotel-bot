@@ -246,8 +246,16 @@ client.once("ready", async () => {
   await registerGuildCommands(guild.id);
   console.log("🏨 Ardent Hotel 봇 준비 완료!");
 
-  // Render 자동 종료 방지 (heartbeat)
+  // ──────────────────────────────
+  // Render 자동 종료 방지 (웹 서버 + heartbeat)
+  // ──────────────────────────────
+  const express = require("express");
+  const app = express();
+  app.get("/", (req, res) => res.send("Ardent Hotel Bot is running."));
+  app.listen(3000, () => console.log("🌐 Web server started on port 3000"));
+
   setInterval(() => console.log("💓 Bot is active - heartbeat"), 1000 * 60 * 5);
 });
+
 
 client.login(TOKEN);
