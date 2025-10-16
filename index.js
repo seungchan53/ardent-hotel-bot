@@ -361,5 +361,62 @@ client.once("ready", async () => {
   await registerGuildCommands(guild.id);
   console.log("🏨 Ardent Hotel 봇 준비 완료!");
 });
+// ──────────────────────────────
+// 🎧 자동 통화방 생성 시스템
+// ──────────────────────────────
+const { ChannelType } = require("discord.js");
+
+let roomCounter = 101; // 시작 번호
+const WAITING_ROOM_NAME = "waiting-room"; // 대기방 이름 (Discord에서 직접 생성)
+const ROOM_CATEGORY_NAME = "🛏️ ROOMS"; // 방이 생성될 카테고리 이름
+const ROOM_PREFIX = "room"; // 예: 101room, 102room ...
+
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  try {
+    const guild = newState.guild;
+    const member = newState.member;
+
+    // 1️⃣ 유저가 들어간 음성 채널이 "대기방"일 때
+    if (newState.channel && newState.channel.name === WAITING_ROOM_NAME) {
+      const category = guild.channels.cache.find(
+        (ch) => ch.type === ChannelType.GuildCategory && ch.name === ROOM_CATEGORY_NAME
+      );
+
+      if (!category) return console.error("❌ ROOMS 카테고리를 찾을 수 없습니다.");
+
+      // 고유 이름 만들기 (중복 방지)
+      let roomName;
+      do {
+        roomName = `${roomCounter++}${ROOM_PREFIX}`;
+      } while (guild.channels.cache.some((c) => c.name === roomName));
+
+      // 새 음성방 생성
+      const newRoom = await guild.channels.create({
+        name: roomName,
+        type: ChannelType.GuildVoice,
+        parent: category,
+      });
+
+      // 유저 이동
+      await member.voice.setChannel(newRoom);
+
+      console.log(`🎧 ${member.user.tag} → ${newRoom.name} 생성 및 이동`);
+
+      // 방 감시 (사람 없으면 삭제)
+      const interval = setInterval(async () => {
+        const ch = guild.channels.cache.get(newRoom.id);
+        if (!ch) return clearInterval(interval);
+        if (ch.members.size === 0) {
+          await ch.delete("🕐 자동 삭제: 비어 있는 통화방");
+          clearInterval(interval);
+          console.log(`🗑️ ${roomName} 삭제 완료`);
+        }
+      }, 5000);
+    }
+  } catch (err) {
+    console.error("⚠️ voiceStateUpdate 에러:", err);
+  }
+});
+
 
 client.login(TOKEN);
