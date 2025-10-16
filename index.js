@@ -1,21 +1,9 @@
 // ------------------------------------
 // Ardent Hotel Discord Bot — Integrated (Rooms auto voice + Communication waiting room)
 // ------------------------------------
-
-
-const { Client, GatewayIntentBits, Partials } = require("discord.js");
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
-});
-
+// ------------------------------------
+// Ardent Hotel Discord Bot — Integrated (Rooms auto voice + Communication waiting room)
+// ------------------------------------
 
 const {
   Client,
@@ -38,12 +26,28 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// ---------- Client ----------
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+});
+
+// ---------- Data setup ----------
 const DATA_DIR = path.join(__dirname, "data");
 const ROOMS_FILE = path.join(DATA_DIR, "rooms.json");
 const CHECKINS_FILE = path.join(DATA_DIR, "checkins.json");
+
 fs.ensureDirSync(DATA_DIR);
 if (!fs.existsSync(ROOMS_FILE)) fs.writeJsonSync(ROOMS_FILE, {});
 if (!fs.existsSync(CHECKINS_FILE)) fs.writeJsonSync(CHECKINS_FILE, {});
+
 
 // ---------- FS helpers ----------
 const readRooms = () => fs.readJsonSync(ROOMS_FILE);
