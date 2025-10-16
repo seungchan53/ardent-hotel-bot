@@ -2,6 +2,21 @@
 // Ardent Hotel Discord Bot — Integrated (Rooms auto voice + Communication waiting room)
 // ------------------------------------
 
+
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+});
+
+
 const {
   Client,
   GatewayIntentBits,
