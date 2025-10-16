@@ -257,14 +257,81 @@ client.on("guildMemberAdd", async (member) => {
   }
 });
 
-// ---------- Ready ----------
+// ---------- Reaction Role Setup ----------
+const roleMessages = {}; // 메시지 ID 저장용
+
+async function setupCheckInReactionRoles(guild) {
+  const channel = guild.channels.cache.find(ch => ch.name.includes("check-in"));
+  if (!channel) return console.log("⚠️ check-in 채널을 찾을 수 없습니다.");
+
+  // 이미 메시지가 있으면 중복 생성 방지
+  const messages = await channel.messages.fetch({ limit: 10 });
+  const existing = messages.find(m => m.author.id === guild.members.me.id);
+  if (existing) return console.log("✅ 이미 check-in 메시지가 존재합니다.");
+
+  // 안내 메시지 (Embed)
+  const embed = {
+    color: 0xEAB543,
+    title: "🏨 Ardent Hotel에 오신 것을 환영합니다!",
+    description:
+      "체크인하시려면 아래 이모지를 눌러주세요 👇\n\n"
+      + "🧍 → **손님 역할 받기**\n\n"
+      + "이모지를 누르면 자동으로 손님 역할이 부여됩니다.",
+    footer: { text: "감사합니다. 좋은 숙박 되세요!" }
+  };
+
+  const msg = await channel.send({ embeds: [embed] });
+  await msg.react("🧍");
+
+  roleMessages[guild.id] = msg.id;
+  console.log("✅ check-in 반응 역할 메시지 생성 완료");
+}
+
+// ---------- 역할 부여 ----------
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  const guild = reaction.message.guild;
+  if (!roleMessages[guild.id] || reaction.message.id !== roleMessages[guild.id]) return;
+  if (reaction.emoji.name !== "🧍") return;
+
+  const member = await guild.members.fetch(user.id);
+  const guestRole = guild.roles.cache.find(r => r.name === "손님");
+  if (!guestRole) return console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
+
+  // 이미 역할이 있다면 무시
+  if (member.roles.cache.has(guestRole.id)) {
+    console.log(`${member.user.tag}은(는) 이미 손님 역할이 있습니다.`);
+    return;
+  }
+
+  await member.roles.add(guestRole);
+  console.log(`🎉 ${member.user.tag}에게 손님 역할을 부여했습니다.`);
+});
+
+// ---------- 역할 제거 ----------
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+  const guild = reaction.message.guild;
+  if (!roleMessages[guild.id] || reaction.message.id !== roleMessages[guild.id]) return;
+  if (reaction.emoji.name !== "🧍") return;
+
+  const member = await guild.members.fetch(user.id);
+  const guestRole = guild.roles.cache.find(r => r.name === "손님");
+  if (!guestRole) return;
+
+  if (member.roles.cache.has(guestRole.id)) {
+    await member.roles.remove(guestRole);
+    console.log(`❎ ${member.user.tag}의 손님 역할이 제거되었습니다.`);
+  }
+});
+
+// ---------- 봇 준비 시 ----------
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   const guild = client.guilds.cache.first();
-  if (!guild) return console.log("⚠️ Bot is not in any guild (invite it first).");
-  await ensureServerStructure(guild);
-  console.log("🏨 Ardent Hotel Bot Ready!");
+  if (guild) await setupCheckInReactionRoles(guild);
 });
+
 
 client.login(TOKEN);
 
