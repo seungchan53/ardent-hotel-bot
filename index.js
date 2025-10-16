@@ -26,19 +26,6 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// ---------- Client ----------
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
-});
-
 // ---------- Data setup ----------
 const DATA_DIR = path.join(__dirname, "data");
 const ROOMS_FILE = path.join(DATA_DIR, "rooms.json");
