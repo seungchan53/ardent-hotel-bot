@@ -1,16 +1,7 @@
 // ------------------------------------
-// Ardent Hotel Discord Bot (Full Version)
-// ------------------------------------
-// 기능:
-// ✅ Render에서 24시간 작동 (자동 종료 방지 heartbeat)
-// ✅ 서버 재시작 시 중복 생성 방지
-// ✅ 슬래시 명령어: /checkin, /room (create/close)
-// ✅ 개인 객실 생성 + 삭제 + 권한 설정
-// ✅ 로그 채널(🔔｜logs)에 기록 남김
-// ✅ 단일 서버 자동 초기화 (역할/카테고리/채널 구조 자동 생성)
+// Ardent Hotel Discord Bot (Full + Voice Rooms "Room 101" 형식)
 // ------------------------------------
 
-// require('dotenv').config(); // 로컬 테스트 시 주석 해제
 const { 
   Client, GatewayIntentBits, Partials, REST, Routes,
   SlashCommandBuilder, PermissionsBitField, ChannelType
@@ -38,12 +29,15 @@ const readCheckins = () => fs.readJsonSync(CHECKINS_FILE);
 const writeCheckins = (obj) => fs.writeJsonSync(CHECKINS_FILE, obj, { spaces: 2 });
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates // 음성 상태 감지
+  ],
   partials: [Partials.Channel],
 });
 
 // ──────────────────────────────
-// Slash commands 등록
+// Slash commands 등록 (기존 내용 유지)
 // ──────────────────────────────
 const commands = [
   new SlashCommandBuilder()
@@ -63,9 +57,6 @@ const commands = [
     ),
 ].map(c => c.toJSON());
 
-// ──────────────────────────────
-// 서버 구조 정의
-// ──────────────────────────────
 const ROLE_DEFS = [
   { key: "GM", name: "👑 총지배인", color: "#FFD700", perms: [PermissionsBitField.Flags.Administrator] },
   { key: "MANAGER", name: "🧳 지배인", color: "#E74C3C", perms: [PermissionsBitField.Flags.ManageChannels] },
@@ -91,9 +82,6 @@ const CHANNEL_DEFS = {
   "🎉 EVENT HALL": ["🎊｜event-info", "🏆｜leaderboard", "🎁｜rewards"],
 };
 
-// ──────────────────────────────
-// 유틸 함수
-// ──────────────────────────────
 const wait = (ms) => new Promise(res => setTimeout(res, ms));
 
 async function registerGuildCommands(guildId) {
@@ -149,7 +137,7 @@ async function logAction(guild, message) {
 }
 
 // ──────────────────────────────
-// 명령어 처리
+// 명령어 처리 (기존)
 // ──────────────────────────────
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -230,9 +218,136 @@ client.on("interactionCreate", async (interaction) => {
     }
   } catch (err) {
     console.error(err);
-    interaction.reply({ content: "⚠️ 명령 실행 중 오류가 발생했습니다.", ephemeral: true });
+    try { await interaction.reply({ content: "⚠️ 명령 실행 중 오류가 발생했습니다.", ephemeral: true }); } catch(e) {}
   }
 });
+
+// ──────────────────────────────
+// 🎧 자동 음성방 시스템 ("Room 101" 스타일)
+// ──────────────────────────────
+const LOBBY_VOICE_NAME = "🎤｜Lobby"; // 대기실 채널 이름
+const CATEGORY_VOICE_NAME = "🎧 Voice Rooms"; // 자동 생성 방을 넣을 카테고리
+const AUTO_DELETE_DELAY = 5000; // 5초 (밀리초)
+
+const autoDeleteTimers = new Map(); // 채널ID -> timeoutID
+
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  try {
+    const guild = (newState?.guild || oldState?.guild);
+    if (!guild) return;
+
+    // 카테고리 확인/생성
+    let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === CATEGORY_VOICE_NAME);
+    if (!category) {
+      category = await guild.channels.create({ name: CATEGORY_VOICE_NAME, type: ChannelType.GuildCategory });
+    }
+
+    // Lobby 채널 확인/생성 (카테고리 안에 넣음)
+    let lobby = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === LOBBY_VOICE_NAME);
+    if (!lobby) {
+      lobby = await guild.channels.create({ name: LOBBY_VOICE_NAME, type: ChannelType.GuildVoice, parent: category.id });
+    }
+
+    // --- 1) 누군가 어떤 채널에 들어왔을 때(newState.channel) --- 
+    if (newState && newState.channel) {
+      // 만약 누군가 auto채널에 들어온다면 삭제 타이머 취소
+      if (autoDeleteTimers.has(newState.channel.id)) {
+        clearTimeout(autoDeleteTimers.get(newState.channel.id));
+        autoDeleteTimers.delete(newState.channel.id);
+      }
+    }
+
+    // --- 2) Lobby에 들어온 경우에만 작동 (새 방 생성) ---
+    if (newState && newState.channel && newState.channel.id === lobby.id) {
+      const member = newState.member;
+
+      // 기존 자동 채널들 중 숫자 추출: "Room 101" 패턴에서 숫자만
+      const existingNumbers = guild.channels.cache
+        .filter(ch => ch.parentId === category.id && ch.type === ChannelType.GuildVoice)
+        .map(ch => {
+          const m = ch.name.match(/^Room\s+(\d{3})$/);
+          return m ? parseInt(m[1], 10) : null;
+        })
+        .filter(n => Number.isInteger(n));
+
+      const nextNumber = existingNumbers.length ? Math.max(...existingNumbers) + 1 : 101;
+      const nameNumber = String(nextNumber).padStart(3, '0'); // 101 -> "101"
+      const newChannelName = `Room ${nameNumber}`;
+
+      // 새 음성채널 생성
+      const newVoice = await guild.channels.create({
+        name: newChannelName,
+        type: ChannelType.GuildVoice,
+        parent: category.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
+        ],
+      });
+
+      // 유저 이동
+      try {
+        await member.voice.setChannel(newVoice);
+      } catch (e) {
+        console.error("유저 이동 실패:", e);
+      }
+
+      // 자동 삭제: 방이 비면 5초 후 삭제 (다시 사람이 들어오면 취소)
+      const scheduleDelete = () => {
+        if (autoDeleteTimers.has(newVoice.id)) clearTimeout(autoDeleteTimers.get(newVoice.id));
+        const t = setTimeout(async () => {
+          const refreshed = guild.channels.cache.get(newVoice.id);
+          if (refreshed && refreshed.members.size === 0) {
+            try {
+              await refreshed.delete("자동 음성 채널 정리");
+            } catch (e) {
+              console.error("자동 삭제 실패:", e);
+            }
+          }
+          autoDeleteTimers.delete(newVoice.id);
+        }, AUTO_DELETE_DELAY);
+        autoDeleteTimers.set(newVoice.id, t);
+      };
+
+      // 처음 생성 직후에도 비어있다면 스케줄링 (긴급 경우)
+      if (newVoice.members.size === 0) scheduleDelete();
+    }
+
+    // --- 3) 누군가 떠났을 때(oldState.channel) --- 
+    if (oldState && oldState.channel) {
+      const leftChannel = guild.channels.cache.get(oldState.channel.id);
+      if (leftChannel && leftChannel.parentId === (category?.id) && leftChannel.type === ChannelType.GuildVoice) {
+        // 자동 채널이고 현재 인원이 0이라면 삭제 예약
+        if (leftChannel.members.size === 0) {
+          if (autoDeleteTimers.has(leftChannel.id)) clearTimeout(autoDeleteTimers.get(leftChannel.id));
+          const t = setTimeout(async () => {
+            const refreshed = guild.channels.cache.get(leftChannel.id);
+            if (refreshed && refreshed.members.size === 0) {
+              try {
+                await refreshed.delete("자동 음성 채널 정리");
+              } catch (e) {
+                console.error("자동 삭제 실패:", e);
+              }
+            }
+            autoDeleteTimers.delete(leftChannel.id);
+          }, AUTO_DELETE_DELAY);
+          autoDeleteTimers.set(leftChannel.id, t);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("voiceStateUpdate 처리 중 오류:", err);
+  }
+});
+
+// ──────────────────────────────
+// Render용 웹서버 + heartbeat (종료 방지)
+// ──────────────────────────────
+const express = require("express");
+const app = express();
+app.get("/", (req, res) => res.send("Ardent Hotel Bot is running."));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🌐 Web server started on port ${PORT}`));
+setInterval(() => console.log("💓 Bot is active - heartbeat"), 1000 * 60 * 5);
 
 // ──────────────────────────────
 // 봇 실행
@@ -245,17 +360,6 @@ client.once("ready", async () => {
   await ensureServerStructure(guild);
   await registerGuildCommands(guild.id);
   console.log("🏨 Ardent Hotel 봇 준비 완료!");
-
-  // ──────────────────────────────
-  // Render 자동 종료 방지 (웹 서버 + heartbeat)
-  // ──────────────────────────────
-  const express = require("express");
-  const app = express();
-  app.get("/", (req, res) => res.send("Ardent Hotel Bot is running."));
-  app.listen(3000, () => console.log("🌐 Web server started on port 3000"));
-
-  setInterval(() => console.log("💓 Bot is active - heartbeat"), 1000 * 60 * 5);
 });
-
 
 client.login(TOKEN);
