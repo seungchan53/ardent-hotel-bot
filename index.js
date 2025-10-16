@@ -234,39 +234,45 @@ async function setupCheckIn(guild) {
   console.log("✅ check-in 메시지 생성 완료");
 }
 
+// ✅ 손님 역할만 이모지로 부여
 client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+
+  // partial 처리
+  if (reaction.partial) await reaction.fetch();
+  if (reaction.message.partial) await reaction.message.fetch();
+
+  // 이모지 역할 부여할 메시지 ID (실제 메시지 ID로 교체해야 함)
+  const CHECKIN_MESSAGE_ID = "메시지_ID_여기에"; // 👈 실제 check-in 메시지 ID로 바꿔야 함
+  if (reaction.message.id !== CHECKIN_MESSAGE_ID) return;
+
+  const guild = reaction.message.guild;
+  const member = guild.members.cache.get(user.id);
+  if (!member) return;
+
+  // 🛎️ 손님 역할만 찾기
+  const guestRole = guild.roles.cache.find(r => r.name.includes("손님"));
+  if (!guestRole) return console.log("❌ 손님 역할을 찾을 수 없습니다.");
+
   try {
-    if (user.bot) return;
-    if (reaction.partial) await reaction.fetch();
-    if (reaction.message.partial) await reaction.message.fetch();
-
-    const guild = reaction.message.guild;
-    if (!guild) return;
-    if (!roleMessages[guild.id] || reaction.message.id !== roleMessages[guild.id]) return;
-    if (reaction.emoji.name !== "🧍") return;
-
-    const member = await guild.members.fetch(user.id);
-    const guestRole = guild.roles.cache.find(r => r.name.includes("손님"));
+    // 기존 VIP 역할 제거
     const vipRole = guild.roles.cache.find(r => r.name.includes("VIP"));
-    if (!guestRole) return console.log("⚠️ 손님 역할 없음");
-
     if (vipRole && member.roles.cache.has(vipRole.id)) {
-      console.log(`🚫 ${member.user.tag}은 VIP이므로 손님 역할 제외`);
-      return;
+      await member.roles.remove(vipRole);
+      console.log(`❎ ${member.user.tag}의 VIP 역할 제거`);
     }
 
-    if (!member.roles.cache.has(guestRole.id)) {
-      await member.roles.add(guestRole);
-      console.log(`🎉 ${member.user.tag} → 손님 역할 부여`);
-    }
+    // 손님 역할 부여
+    await member.roles.add(guestRole);
+    console.log(`✅ ${member.user.tag}에게 손님 역할 부여`);
 
-    const msg = reaction.message;
-    const r = msg.reactions.cache.get("🧍");
-    if (r) await r.users.remove(user.id).catch(() => {});
-  } catch (e) {
-    console.error("❌ Reaction error:", e);
+    // 반응 숫자 초기화
+    await reaction.users.remove(user.id);
+  } catch (err) {
+    console.error("❌ 역할 부여 중 오류:", err);
   }
 });
+
 
 // ---------- Welcome ----------
 client.on("guildMemberAdd", async (m) => {
