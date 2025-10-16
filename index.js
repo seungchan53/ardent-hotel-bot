@@ -243,7 +243,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
   if (reaction.message.partial) await reaction.message.fetch();
 
   // 이모지 역할 부여할 메시지 ID (실제 메시지 ID로 교체해야 함)
-  const CHECKIN_MESSAGE_ID = "메시지_ID_여기에"; // 👈 실제 check-in 메시지 ID로 바꿔야 함
+  const CHECKIN_MESSAGE_ID = "1428420681296642241"; // 👈 실제 check-in 메시지 ID로 바꿔야 함
   if (reaction.message.id !== CHECKIN_MESSAGE_ID) return;
 
   const guild = reaction.message.guild;
