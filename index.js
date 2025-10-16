@@ -264,6 +264,7 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 // ---------- Reaction Role Setup ----------
+// ---------- Reaction Role Setup ----------
 const roleMessages = {};
 
 client.on("ready", async () => {
@@ -281,7 +282,8 @@ async function setupCheckInReactionRoles(guild) {
   const existing = messages.find(m => m.author.id === guild.members.me.id);
   if (existing) {
     roleMessages[guild.id] = existing.id;
-    return console.log("✅ 기존 check-in 메시지를 사용합니다.");
+    console.log("✅ 기존 check-in 메시지를 사용합니다.");
+    return;
   }
 
   const embed = {
@@ -301,34 +303,49 @@ async function setupCheckInReactionRoles(guild) {
   console.log("✅ check-in 반응 역할 메시지 생성 완료");
 }
 
+// ---------- Reaction Handling ----------
 client.on("messageReactionAdd", async (reaction, user) => {
   try {
     if (user.bot) return;
 
-    // 🔧 Partial 처리
+    // 🔧 Partial 처리 (Discord.js v14 필수)
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
 
     const guild = reaction.message.guild;
+    if (!guild) return;
+
+    // ✅ 메시지 일치 여부 확인
     if (!roleMessages[guild.id] || reaction.message.id !== roleMessages[guild.id]) return;
     if (reaction.emoji.name !== "🧍") return;
 
+    // ✅ 손님 역할 찾기
     const member = await guild.members.fetch(user.id);
-const guestRole = guild.roles.cache.find(r => r.name.includes("손님")); // ← 변경됨
-if (!guestRole) return console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
+    const guestRole = guild.roles.cache.find(r => r.name.includes("손님"));
+    if (!guestRole) {
+      console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
+      return;
+    }
 
-if (!member.roles.cache.has(guestRole.id)) {
-  await member.roles.add(guestRole);
-  console.log(`🎉 ${member.user.tag} → 손님 역할 부여 완료`);
-}
+    // ✅ 역할 부여
+    if (!member.roles.cache.has(guestRole.id)) {
+      await member.roles.add(guestRole).catch(console.error);
+      console.log(`🎉 ${member.user.tag} → 손님 역할 부여 완료`);
+    }
 
-// 👇 이모지 반응 제거 → 숫자 다시 1로
-await reaction.users.remove(user.id);
+    // ✅ 반응 제거 (숫자 초기화용)
+    const msg = reaction.message;
+    const fetchedReaction = msg.reactions.cache.get("🧍");
+    if (fetchedReaction) {
+      await fetchedReaction.users.remove(user.id).catch(() => {});
+      console.log(`🔄 ${user.tag}의 반응 제거 → 숫자 리셋 완료`);
+    }
 
   } catch (err) {
     console.error("❌ Reaction Role Error:", err);
   }
 });
+
 
 // ---------- 봇 준비 시 ----------
 client.once("ready", async () => {
