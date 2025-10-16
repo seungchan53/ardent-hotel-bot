@@ -59,7 +59,7 @@ const commands = [
     .addStringOption(opt => opt.setName("name").setDescription("객실 이름 (선택)").setRequired(false)),
 ].map(c => c.toJSON());
 
-// ---------- Defaults (roles / categories) ----------
+// ---------- Defaults ----------
 const ROLE_DEFS = [
   { key: "GM", name: "👑 총지배인", color: "#FFD700", perms: [PermissionsBitField.Flags.Administrator] },
   { key: "MANAGER", name: "🧳 지배인", color: "#E74C3C", perms: [PermissionsBitField.Flags.ManageChannels] },
@@ -72,7 +72,7 @@ const ROLE_DEFS = [
 const CATEGORY_DEFS = [
   { name: "🏛️ LOBBY" },
   { name: "☕ GUEST LOUNGE" },
-  { name: "Rooms" }, // <-- 정확히 'Rooms' (대소문자 구별)
+  { name: "🛏️ ROOMS" }, // 🛏️ Rooms 카테고리 이름 수정
   { name: "🛠️ FRONT DESK" },
   { name: "🎉 EVENT HALL" },
 ];
@@ -80,7 +80,7 @@ const CATEGORY_DEFS = [
 const CHANNEL_DEFS = {
   "🏛️ LOBBY": ["💬｜welcome", "🏷️｜rules", "📰｜announcements", "🪶｜introductions"],
   "☕ GUEST LOUNGE": ["🗨️｜lounge-chat", "🎮｜game-room", "🎨｜fan-art"],
-  "Rooms": [], // Rooms 카테고리에는 텍스트 채널 없이 음성방만 둠
+  "🛏️ ROOMS": [], // 🛏️ ROOMS 안에는 텍스트 채널 없음
   "🛠️ FRONT DESK": ["📋｜check-in", "💬｜help-desk", "🔔｜logs"],
   "🎉 EVENT HALL": ["🎊｜event-info", "🏆｜leaderboard"],
 };
@@ -88,39 +88,26 @@ const CHANNEL_DEFS = {
 // ---------- Utilities ----------
 const wait = ms => new Promise(res => setTimeout(res, ms));
 
-async function registerGuildCommands(guildId) {
-  try {
-    const rest = new REST({ version: "10" }).setToken(TOKEN);
-    await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
-    console.log(`✅ Registered slash commands for guild ${guildId}`);
-  } catch (err) {
-    console.error("❌ Register commands failed:", err);
-  }
-}
-
-// ---------- Ensure server structure (roles, categories, channels) ----------
+// ---------- Guild Structure ----------
 async function ensureServerStructure(guild) {
-  console.log("🏗️ ensureServerStructure start...");
+  console.log("🏗️ Setting up server structure...");
 
-  const rolesMap = {};
+  // Roles
   for (const def of ROLE_DEFS) {
     let role = guild.roles.cache.find(r => r.name === def.name);
     if (!role) {
       role = await guild.roles.create({ name: def.name, color: def.color, permissions: def.perms });
       console.log(`➕ Created role: ${def.name}`);
       await wait(300);
-    } else {
-      console.log(`✔ Role exists: ${def.name}`);
     }
-    rolesMap[def.key] = role;
   }
 
-  // categories & channels
+  // Categories + Text Channels
   for (const catDef of CATEGORY_DEFS) {
     let category = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === catDef.name);
     if (!category) {
       category = await guild.channels.create({ name: catDef.name, type: ChannelType.GuildCategory });
-      console.log(`➕ Created category: ${catDef.name}`);
+      console.log(`📁 Created category: ${catDef.name}`);
       await wait(300);
     }
 
@@ -129,238 +116,79 @@ async function ensureServerStructure(guild) {
       let ch = guild.channels.cache.find(c => c.name === chName && c.parentId === category.id);
       if (!ch) {
         await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category });
-        console.log(`➕ Created text channel: ${chName} in ${catDef.name}`);
+        console.log(`💬 Created: ${chName} in ${catDef.name}`);
         await wait(200);
       }
     }
   }
 
-  // Rooms category: ensure 'Communication' waiting voice channel exists; remove any text channels inside Rooms
-  const roomsCategory = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "Rooms");
+  // 🛏️ ROOMS 구조만 커스터마이징
+  const roomsCategory = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "🛏️ ROOMS");
   if (roomsCategory) {
-    // remove text channels under Rooms (only if they match CHANNEL_DEFS earlier we decided none). We won't forcibly delete arbitrary channels,
-    // but if any text channels exist with name in CHANNEL_DEFS[Rooms] we'd skip; here CHANNEL_DEFS["Rooms"] is empty so we just ensure no text channels are created by us.
-    let waiting = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === roomsCategory.id && c.name === "Communication");
-    if (!waiting) {
+    // 1️⃣ 기존 텍스트 채널 제거
+    const textChannels = guild.channels.cache.filter(c => c.parentId === roomsCategory.id && c.type === ChannelType.GuildText);
+    for (const [, ch] of textChannels) await ch.delete().catch(() => {});
+
+    // 2️⃣ Communication 대기방 생성
+    let comm = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildVoice && c.parentId === roomsCategory.id && c.name === "Communication"
+    );
+    if (!comm) {
       await guild.channels.create({
         name: "Communication",
         type: ChannelType.GuildVoice,
         parent: roomsCategory.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
+        ],
       });
-      console.log("🎧 Created waiting voice channel: Communication (under Rooms)");
-    } else {
-      console.log("✔ Waiting voice channel already exists: Communication");
+      console.log("🎤 Created Communication waiting room");
     }
-  } else {
-    console.log("⚠️ Rooms category not found (shouldn't happen)");
   }
 
-  // Create admin-only channels inside FRONT DESK (admin-chat, admin-meeting) — English version
-  const frontDesk = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "🛠️ FRONT DESK");
-  if (frontDesk) {
-    const roles = {
-      everyone: guild.roles.everyone,
-      generalManager: guild.roles.cache.find(r => r.name === "👑 총지배인"),
-      manager: guild.roles.cache.find(r => r.name === "🧳 지배인"),
-    };
-
-    const adminPermissions = [
-      { id: roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-      ...(roles.generalManager ? [{ id: roles.generalManager.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak] }] : []),
-      ...(roles.manager ? [{ id: roles.manager.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak] }] : []),
-    ];
-
-    // admin-chat
-    let adminText = guild.channels.cache.find(c => c.name === "admin-chat" && c.parentId === frontDesk.id && c.type === ChannelType.GuildText);
-    if (!adminText) {
-      await guild.channels.create({
-        name: "admin-chat",
-        type: ChannelType.GuildText,
-        parent: frontDesk.id,
-        permissionOverwrites: adminPermissions,
-      });
-      console.log("➕ Created admin-chat (private)");
-    } else console.log("✔ admin-chat exists");
-
-    // admin-meeting (voice)
-    let adminVoice = guild.channels.cache.find(c => c.name === "admin-meeting" && c.parentId === frontDesk.id && c.type === ChannelType.GuildVoice);
-    if (!adminVoice) {
-      await guild.channels.create({
-        name: "admin-meeting",
-        type: ChannelType.GuildVoice,
-        parent: frontDesk.id,
-        permissionOverwrites: adminPermissions,
-      });
-      console.log("➕ Created admin-meeting (private)");
-    } else console.log("✔ admin-meeting exists");
-  } else {
-    console.log("⚠️ FRONT DESK category not found — skipping admin-only channels");
-  }
-
-  console.log("🏨 ensureServerStructure complete");
-  return rolesMap;
+  console.log("🏨 Server structure ready");
 }
 
-// ---------- Logging helper ----------
-async function logAction(guild, message) {
-  const logChannel = guild.channels.cache.find(ch => ch.name === "🔔｜logs" && ch.type === ChannelType.GuildText);
-  if (logChannel) await logChannel.send({ content: message }).catch(() => console.log("[LOG SEND FAIL]", message));
-  else console.log("[LOG]", message);
-}
-
-// ---------- Command handling (checkin & room commands) ----------
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  const { commandName, guild, user } = interaction;
-  try {
-    if (commandName === "checkin") {
-      const notes = interaction.options.getString("notes") || "없음";
-      const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
-      if (!guestRole) return interaction.reply({ content: "❌ 손님 역할을 찾을 수 없습니다.", ephemeral: true });
-
-      await interaction.member.roles.add(guestRole);
-      const checkins = readCheckins();
-      checkins[user.id] = { userTag: user.tag, at: new Date().toISOString(), notes };
-      writeCheckins(checkins);
-
-      await interaction.reply({ content: `✅ 체크인 완료 — ${user.tag}님, 환영합니다!`, ephemeral: false });
-      await logAction(guild, `🛎️ ${user.tag} 체크인 — 메모: ${notes}`);
-    }
-
-    if (commandName === "room") {
-      const action = interaction.options.getString("action").toLowerCase();
-      const nameOption = interaction.options.getString("name");
-      const rooms = readRooms();
-
-      const roomsCategory = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "Rooms");
-      if (!roomsCategory) return interaction.reply({ content: "❌ Rooms 카테고리를 찾을 수 없습니다.", ephemeral: true });
-
-      if (action === "create") {
-        if (rooms[user.id]) {
-          return interaction.reply({ content: `❗ 이미 개인 객실이 있습니다: <#${rooms[user.id].channelId}>`, ephemeral: true });
-        }
-
-        const safeName = nameOption ? nameOption.replace(/[^a-zA-Z0-9-_가-힣]/g, "").slice(0, 20) : `room-${interaction.user.username}`.toLowerCase();
-        let channelName = `🔒-${safeName}`;
-        let counter = 1;
-        while (guild.channels.cache.some(c => c.name === channelName)) {
-          channelName = `🔒-${safeName}-${counter++}`;
-        }
-
-        const staffRole = guild.roles.cache.find(r => r.name === "🧹 직원");
-        const everyone = guild.roles.everyone;
-
-        const overwrites = [
-          { id: everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-        ];
-        if (staffRole) overwrites.push({ id: staffRole.id, allow: [PermissionsBitField.Flags.ViewChannel] });
-
-        const newRoom = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: roomsCategory.id,
-          permissionOverwrites: overwrites,
-        });
-
-        rooms[user.id] = { channelId: newRoom.id, name: channelName };
-        writeRooms(rooms);
-
-        await interaction.reply({ content: `🏠 객실 생성 완료: ${newRoom}`, ephemeral: true });
-        await logAction(guild, `🏠 ${user.tag} 개인 객실 생성됨 → ${newRoom}`);
-      }
-
-      if (action === "close") {
-        if (!rooms[user.id]) {
-          return interaction.reply({ content: "❌ 당신의 객실이 없습니다.", ephemeral: true });
-        }
-
-        const roomInfo = rooms[user.id];
-        const ch = guild.channels.cache.get(roomInfo.channelId);
-        if (ch) await ch.delete("사용자 요청으로 객실 닫기");
-        delete rooms[user.id];
-        writeRooms(rooms);
-
-        await interaction.reply({ content: `🚪 객실이 닫혔습니다. 감사합니다!`, ephemeral: true });
-        await logAction(guild, `🚪 ${user.tag} 개인 객실 삭제`);
-      }
-    }
-  } catch (err) {
-    console.error("interaction error:", err);
-    try { await interaction.reply({ content: "⚠️ 명령 실행 중 오류가 발생했습니다.", ephemeral: true }); } catch(e) {}
-  }
-});
-
-// ---------- Automatic voice rooms (Communication waiting room -> Room XXX) ----------
-const AUTO_DELETE_DELAY = 5000; // 5 seconds
+// ---------- Auto Voice Room Logic ----------
+const AUTO_DELETE_DELAY = 5000;
 const AUTO_FLOORS = 5;
-const ROOMS_PER_FLOOR = 10; // Room 101~110 etc
+const ROOMS_PER_FLOOR = 3;
 let autoTimers = new Map();
 
 function getAllAllowedRoomNumbers() {
   const nums = [];
   for (let floor = 1; floor <= AUTO_FLOORS; floor++) {
-    for (let r = 1; r <= ROOMS_PER_FLOOR; r++) {
-      const num = floor * 100 + r; // floor 1, r1 => 101
-      nums.push(num);
-    }
+    for (let r = 1; r <= ROOMS_PER_FLOOR; r++) nums.push(floor * 100 + r);
   }
-  return nums; // [101,102,...,110,201,...,510]
+  return nums; // [101,102,103,...503]
 }
 
 function pickNextRoomNumber(existingNumbers) {
-  // existingNumbers: array of ints
-  const allowed = getAllAllowedRoomNumbers();
-  // pick the smallest allowed number that's not in existingNumbers
-  for (const n of allowed) {
-    if (!existingNumbers.includes(n)) return n;
-  }
-  // all used -> return null
+  for (const n of getAllAllowedRoomNumbers()) if (!existingNumbers.includes(n)) return n;
   return null;
 }
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
-    const guild = (newState?.guild || oldState?.guild);
+    const guild = newState.guild || oldState.guild;
     if (!guild) return;
-
-    const roomsCategory = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "Rooms");
+    const roomsCategory = guild.channels.cache.find(ch => ch.type === ChannelType.GuildCategory && ch.name === "🛏️ ROOMS");
     if (!roomsCategory) return;
-
-    // find waiting channel
     const waiting = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === roomsCategory.id && c.name === "Communication");
     if (!waiting) return;
 
-    // If someone enters any channel: cancel delete timer for that channel if exists
-    if (newState && newState.channel) {
-      if (autoTimers.has(newState.channel.id)) {
-        clearTimeout(autoTimers.get(newState.channel.id));
-        autoTimers.delete(newState.channel.id);
-      }
-    }
-
-    // If someone enters the waiting room, create a new Room
-    if (newState && newState.channel && newState.channel.id === waiting.id) {
+    // 유저가 Communication에 들어오면 새 Room 생성
+    if (newState.channelId === waiting.id) {
       const member = newState.member;
-
-      // collect existing Room numbers in this category
       const existingRooms = guild.channels.cache
         .filter(ch => ch.parentId === roomsCategory.id && ch.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(ch.name))
-        .map(ch => parseInt(ch.name.split(" ")[1], 10));
+        .map(ch => parseInt(ch.name.split(" ")[1]));
 
       const next = pickNextRoomNumber(existingRooms);
-      if (!next) {
-        // no free rooms
-        console.log("⚠️ All Room numbers occupied (101~510)");
-        // Optionally notify user
-        try { await member.send("All rooms are currently occupied. Please try again later."); } catch(e) {}
-        return;
-      }
+      if (!next) return;
 
-      const newName = `Room ${String(next)}`;
-
-      const newVoice = await guild.channels.create({
-        name: newName,
+      const newRoom = await guild.channels.create({
+        name: `Room ${next}`,
         type: ChannelType.GuildVoice,
         parent: roomsCategory.id,
         permissionOverwrites: [
@@ -368,55 +196,39 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         ],
       });
 
-      // Move user
-      try {
-        await member.voice.setChannel(newVoice);
-      } catch (e) {
-        console.error("Failed to move member to new room:", e);
-      }
+      await member.voice.setChannel(newRoom);
+      console.log(`🏠 Created Room ${next} for ${member.user.tag}`);
 
-      console.log(`➕ Created ${newName} and moved ${member.user.tag}`);
-
-      // schedule auto delete if empty
+      // 자동 삭제 예약
       const scheduleDelete = (chId) => {
         if (autoTimers.has(chId)) clearTimeout(autoTimers.get(chId));
         const t = setTimeout(async () => {
-          const refreshed = guild.channels.cache.get(chId);
-          if (refreshed && refreshed.members.size === 0) {
-            try {
-              await refreshed.delete("Auto cleanup: empty room");
-              console.log(`🗑️ Deleted ${refreshed.name}`);
-            } catch (e) {
-              console.error("Delete failed:", e);
-            }
+          const ch = guild.channels.cache.get(chId);
+          if (ch && ch.members.size === 0) {
+            await ch.delete().catch(() => {});
+            console.log(`🗑️ Deleted ${ch.name}`);
           }
           autoTimers.delete(chId);
         }, AUTO_DELETE_DELAY);
         autoTimers.set(chId, t);
       };
-
-      // if immediately empty (unlikely because we moved someone), schedule deletion anyway
-      if (newVoice.members.size === 0) scheduleDelete(newVoice.id);
+      scheduleDelete(newRoom.id);
     }
 
-    // If someone left a room under Rooms category, schedule delete if empty
-    if (oldState && oldState.channel && oldState.channel.parentId === roomsCategory.id) {
-      const leftCh = guild.channels.cache.get(oldState.channel.id);
-      if (leftCh && /^Room\s\d{3}$/.test(leftCh.name) && leftCh.members.size === 0) {
-        if (autoTimers.has(leftCh.id)) clearTimeout(autoTimers.get(leftCh.id));
+    // 유저가 방을 떠났을 때 비어 있으면 삭제 예약
+    if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name) && oldState.channel.parentId === roomsCategory.id) {
+      const ch = oldState.channel;
+      if (ch.members.size === 0) {
+        if (autoTimers.has(ch.id)) clearTimeout(autoTimers.get(ch.id));
         const t = setTimeout(async () => {
-          const refreshed = guild.channels.cache.get(leftCh.id);
+          const refreshed = guild.channels.cache.get(ch.id);
           if (refreshed && refreshed.members.size === 0) {
-            try {
-              await refreshed.delete("Auto cleanup: empty room");
-              console.log(`🗑️ Deleted ${refreshed.name}`);
-            } catch (e) {
-              console.error("Delete failed:", e);
-            }
+            await refreshed.delete().catch(() => {});
+            console.log(`🗑️ Deleted ${refreshed.name}`);
           }
-          autoTimers.delete(leftCh.id);
+          autoTimers.delete(ch.id);
         }, AUTO_DELETE_DELAY);
-        autoTimers.set(leftCh.id, t);
+        autoTimers.set(ch.id, t);
       }
     }
   } catch (err) {
@@ -424,7 +236,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 });
 
-// ---------- Express server for Render heartbeat ----------
+// ---------- Express server ----------
 const app = express();
 app.get("/", (req, res) => res.send("Ardent Hotel Bot is running."));
 const PORT = process.env.PORT || 3000;
@@ -437,7 +249,6 @@ client.once("ready", async () => {
   const guild = client.guilds.cache.first();
   if (!guild) return console.log("⚠️ Bot is not in any guild (invite it first).");
   await ensureServerStructure(guild);
-  await registerGuildCommands(guild.id);
   console.log("🏨 Ardent Hotel Bot Ready!");
 });
 
