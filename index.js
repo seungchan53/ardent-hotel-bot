@@ -86,31 +86,30 @@ client.on("messageReactionAdd", async (reaction, user) => {
   try {
     if (user.bot) return;
 
-    // Partial 처리
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
 
     const guild = reaction.message.guild;
     if (!guild) return;
 
-    // 올바른 메시지인지 확인
     if (!roleMessages[guild.id] || reaction.message.id !== roleMessages[guild.id]) return;
     if (reaction.emoji.name !== "🧍") return;
 
     const member = await guild.members.fetch(user.id);
-    const guestRole = guild.roles.cache.find(r => r.name.includes("손님"));
+
+    // ✅ 이름이 정확히 "🛎️ 손님"인 역할만 찾기
+    const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
     if (!guestRole) {
-      console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
+      console.log("⚠️ '🛎️ 손님' 역할을 찾을 수 없습니다.");
       return;
     }
 
-    // ✅ 손님 역할 부여
     if (!member.roles.cache.has(guestRole.id)) {
       await member.roles.add(guestRole);
       console.log(`🎉 ${member.user.tag} → 손님 역할 부여 완료`);
     }
 
-    // ✅ 숫자 리셋 (reaction 제거)
+    // ✅ 숫자 리셋 (반응 제거)
     const msg = reaction.message;
     const fetchedReaction = msg.reactions.cache.get("🧍");
     if (fetchedReaction) {
@@ -121,6 +120,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
     console.error("❌ Reaction Role Error:", err);
   }
 });
+
 
 // ---------- 나머지 (Rooms 자동 생성/삭제, 서버 구조 등 기존 코드 그대로 유지) ----------
 // ⚠️ 아래 부분은 네가 올린 원본 코드 그대로 두면 됨
