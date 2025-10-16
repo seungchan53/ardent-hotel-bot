@@ -243,6 +243,20 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
 setInterval(() => console.log("💓 Bot heartbeat"), 1000 * 60 * 5);
 
+// ---------- 자동 환영 메시지 ----------
+client.on("guildMemberAdd", async (member) => {
+  const guild = member.guild;
+  const welcomeChannel = guild.channels.cache.find(
+    (c) => c.name === "💬｜welcome" && c.type === ChannelType.GuildText
+  );
+  if (welcomeChannel) {
+    welcomeChannel.send(
+      `🎉 **${guild.name}**에 오신 걸 환영합니다, <@${member.id}>님! 🏨\n` +
+      `체크인을 위해 <#📋｜check-in> 채널로 이동해주세요.`
+    );
+  }
+});
+
 // ---------- Ready ----------
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -253,3 +267,4 @@ client.once("ready", async () => {
 });
 
 client.login(TOKEN);
+
