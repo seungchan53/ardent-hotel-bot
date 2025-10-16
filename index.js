@@ -238,35 +238,37 @@ async function setupCheckIn(guild) {
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
 
-  // partial 처리
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
 
-  // 이모지 역할 부여할 메시지 ID (실제 메시지 ID로 교체해야 함)
-  const CHECKIN_MESSAGE_ID = "1428420681296642241"; // 👈 실제 check-in 메시지 ID로 바꿔야 함
+  // 🔹 check-in 메시지 ID
+  const CHECKIN_MESSAGE_ID = "1428420681296642241"; // 실제 메시지 ID 유지
   if (reaction.message.id !== CHECKIN_MESSAGE_ID) return;
+  if (reaction.emoji.name !== "🧍") return; // 🧍 이모지만 반응
 
   const guild = reaction.message.guild;
   const member = guild.members.cache.get(user.id);
   if (!member) return;
 
-  // 🛎️ 손님 역할만 찾기
-  const guestRole = guild.roles.cache.find(r => r.name.includes("손님"));
+  // 🛎️ 손님 역할만 정확히 찾기
+  const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
   if (!guestRole) return console.log("❌ 손님 역할을 찾을 수 없습니다.");
 
   try {
-    // 기존 VIP 역할 제거
-    const vipRole = guild.roles.cache.find(r => r.name.includes("VIP"));
+    // ✅ VIP 역할 제거
+    const vipRole = guild.roles.cache.find(r => r.name === "💼 VIP 손님");
     if (vipRole && member.roles.cache.has(vipRole.id)) {
       await member.roles.remove(vipRole);
-      console.log(`❎ ${member.user.tag}의 VIP 역할 제거`);
+      console.log(`❎ ${member.user.tag}의 VIP 손님 역할 제거`);
     }
 
-    // 손님 역할 부여
-    await member.roles.add(guestRole);
-    console.log(`✅ ${member.user.tag}에게 손님 역할 부여`);
+    // ✅ 손님 역할 부여
+    if (!member.roles.cache.has(guestRole.id)) {
+      await member.roles.add(guestRole);
+      console.log(`✅ ${member.user.tag}에게 손님 역할 부여`);
+    }
 
-    // 반응 숫자 초기화
+    // ✅ 반응 숫자 초기화
     await reaction.users.remove(user.id);
   } catch (err) {
     console.error("❌ 역할 부여 중 오류:", err);
