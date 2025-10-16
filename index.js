@@ -314,16 +314,16 @@ client.on("messageReactionAdd", async (reaction, user) => {
     if (reaction.emoji.name !== "🧍") return;
 
     const member = await guild.members.fetch(user.id);
-    const guestRole = guild.roles.cache.find(r => r.name === "손님");
-    if (!guestRole) return console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
+const guestRole = guild.roles.cache.find(r => r.name.includes("손님")); // ← 변경됨
+if (!guestRole) return console.log("⚠️ '손님' 역할을 찾을 수 없습니다.");
 
-    if (!member.roles.cache.has(guestRole.id)) {
-      await member.roles.add(guestRole);
-      console.log(`🎉 ${member.user.tag} → 손님 역할 부여 완료`);
-    }
+if (!member.roles.cache.has(guestRole.id)) {
+  await member.roles.add(guestRole);
+  console.log(`🎉 ${member.user.tag} → 손님 역할 부여 완료`);
+}
 
-    // 👇 이모지 반응 제거 → 숫자 다시 1로
-    await reaction.users.remove(user.id);
+// 👇 이모지 반응 제거 → 숫자 다시 1로
+await reaction.users.remove(user.id);
 
   } catch (err) {
     console.error("❌ Reaction Role Error:", err);
