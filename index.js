@@ -137,6 +137,8 @@ async function sendLog(guild, title, description, color = "#6A5ACD") {
 }
 
 // ---------- Voice Room Logic ----------
+// 전역 잠금 맵 (서버별 생성 중 상태)
+const roomCreateLock = new Map();
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
@@ -149,25 +151,21 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     if (!roomsCat) return;
 
     const comm = guild.channels.cache.find(
-      c => c.type === ChannelType.GuildVoice &&
-           c.parentId === roomsCat.id &&
-           c.name === "Communication"
+      c =>
+        c.type === ChannelType.GuildVoice &&
+        c.parentId === roomsCat.id &&
+        c.name === "Communication"
     );
     if (!comm) return;
 
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    // ✅ 중복 이벤트 방지
-    if (member._voiceCooldown) return;
-    member._voiceCooldown = true;
-    setTimeout(() => (member._voiceCooldown = false), 2500);
-
     // ✅ Communication 입장 → 방 생성
     if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
-      // 중복 생성 방지 (봇 내부 flag)
-      if (guild._creatingRoom) return;
-      guild._creatingRoom = true;
+      // 서버 단위 생성 잠금
+      if (roomCreateLock.get(guild.id)) return;
+      roomCreateLock.set(guild.id, true);
 
       const existingRooms = guild.channels.cache
         .filter(
@@ -188,13 +186,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         type: ChannelType.GuildVoice,
         parent: roomsCat.id,
         permissionOverwrites: [
-          // 👇 모든 사람 차단
           { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] },
-          // 👇 손님만 접근 허용
           guestRole
             ? { id: guestRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] }
             : null,
-          // 👇 본인 접근 허용
           { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] },
         ].filter(Boolean),
       });
@@ -207,8 +202,8 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         "#00BFFF"
       );
 
-      // 생성 중 플래그 해제
-      setTimeout(() => (guild._creatingRoom = false), 1000);
+      // 1초 후 잠금 해제
+      setTimeout(() => roomCreateLock.delete(guild.id), 1000);
     }
 
     // ✅ 방 나가면 삭제
@@ -233,9 +228,6 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     console.error("voiceStateUpdate error:", err);
   }
 });
-
-
-
 // ---------- Reaction Role ----------
 const roleMessages = {};
 
