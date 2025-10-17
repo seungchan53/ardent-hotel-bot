@@ -132,13 +132,19 @@ async function sendLog(guild, title, description, color = "#6A5ACD") {
 }
 
 // ---------- Voice Room Logic ----------
+const { ChannelType, PermissionsBitField } = require("discord.js");
+
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
-    const roomsCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS");
-    const comm = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat?.id && c.name === "Communication");
+    const roomsCat = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS"
+    );
+    const comm = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat?.id && c.name === "Communication"
+    );
     if (!roomsCat || !comm) return;
 
     const member = newState.member || oldState.member;
@@ -149,13 +155,19 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     member._roomCooldown = true;
     setTimeout(() => (member._roomCooldown = false), 2500);
 
+    // ✅ 역할 ID 가져오기 (서버에 맞게 변경)
+    const guestRole = guild.roles.cache.find(r => r.name === "손님");
+    const vipRole = guild.roles.cache.find(r => r.name === "VIP 손님");
+    const managerRole = guild.roles.cache.find(r => r.name === "지배인");
+    const gmRole = guild.roles.cache.find(r => r.name === "총지배인");
+
     // ✅ Communication 입장 → 방 생성
     if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
       const existingRooms = guild.channels.cache.filter(
         c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name)
       );
 
-      const usedNums = [...existingRooms.keys()].map(k => parseInt(existingRooms.get(k).name.split(" ")[1]));
+      const usedNums = [...existingRooms.values()].map(c => parseInt(c.name.split(" ")[1]));
       let nextNum = 101;
       while (usedNums.includes(nextNum)) nextNum++;
 
@@ -164,7 +176,18 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         type: ChannelType.GuildVoice,
         parent: roomsCat.id,
         permissionOverwrites: [
-          { id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
+          {
+            id: guild.roles.everyone.id,
+            deny: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect], // ❌ 모두 금지
+          },
+          {
+            id: member.id, // ✅ 방 주인
+            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak],
+          },
+          ...(guestRole ? [{ id: guestRole.id, allow: [PermissionsBitField.Flags.ViewChannel] }] : []),
+          ...(vipRole ? [{ id: vipRole.id, allow: [PermissionsBitField.Flags.ViewChannel] }] : []),
+          ...(managerRole ? [{ id: managerRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] }] : []),
+          ...(gmRole ? [{ id: gmRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] }] : []),
         ],
       });
 
@@ -191,6 +214,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     console.error("voiceStateUpdate error:", err);
   }
 });
+
 
 // ---------- Reaction Role ----------
 const roleMessages = {};
