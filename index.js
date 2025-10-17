@@ -10,8 +10,10 @@ const {
   Routes,
   SlashCommandBuilder,
   PermissionsBitField,
-  ChannelType
+  ChannelType,
+  EmbedBuilder // ✅ 이거 추가!
 } = require("discord.js");
+
 
 const fs = require("fs-extra");
 const path = require("path");
