@@ -1,5 +1,5 @@
 // ------------------------------------
-// Ardent Hotel Discord Bot — Render Compatible Full Integration + Logs System
+// Ardent Hotel Discord Bot — Stable Full Integration (Anti-Duplicate + Logs Fix)
 // ------------------------------------
 
 const {
@@ -23,12 +23,7 @@ if (!TOKEN) {
 
 // ---------- Data setup ----------
 const DATA_DIR = path.join(__dirname, "data");
-const ROOMS_FILE = path.join(DATA_DIR, "rooms.json");
-const CHECKINS_FILE = path.join(DATA_DIR, "checkins.json");
-
 fs.ensureDirSync(DATA_DIR);
-if (!fs.existsSync(ROOMS_FILE)) fs.writeJsonSync(ROOMS_FILE, {});
-if (!fs.existsSync(CHECKINS_FILE)) fs.writeJsonSync(CHECKINS_FILE, {});
 
 // ---------- Client ----------
 const client = new Client({
@@ -45,12 +40,12 @@ const client = new Client({
 
 // ---------- Role + Channel Setup ----------
 const ROLE_DEFS = [
-  { key: "GM", name: "👑 총지배인", color: "#FFD700", perms: [PermissionsBitField.Flags.Administrator] },
-  { key: "MANAGER", name: "🧳 지배인", color: "#E74C3C", perms: [PermissionsBitField.Flags.ManageChannels] },
-  { key: "STAFF", name: "🧹 직원", color: "#95A5A6", perms: [] },
-  { key: "VIP", name: "💼 VIP 손님", color: "#9B59B6", perms: [] },
-  { key: "GUEST", name: "🛎️ 손님", color: "#FFFFFF", perms: [] },
-  { key: "BOT", name: "🤖 봇", color: "#3498DB", perms: [] },
+  { name: "👑 총지배인", color: "#FFD700", perms: [PermissionsBitField.Flags.Administrator] },
+  { name: "🧳 지배인", color: "#E74C3C", perms: [PermissionsBitField.Flags.ManageChannels] },
+  { name: "🧹 직원", color: "#95A5A6", perms: [] },
+  { name: "💼 VIP 손님", color: "#9B59B6", perms: [] },
+  { name: "🛎️ 손님", color: "#FFFFFF", perms: [] },
+  { name: "🤖 봇", color: "#3498DB", perms: [] },
 ];
 
 const CATEGORY_DEFS = [
@@ -73,28 +68,20 @@ const CHANNEL_DEFS = {
 async function ensureServerStructure(guild) {
   console.log("🏗️ Setting up server structure...");
 
-  // Roles
   for (const def of ROLE_DEFS) {
-    let role = guild.roles.cache.find(r => r.name === def.name);
-    if (!role) {
+    if (!guild.roles.cache.find(r => r.name === def.name)) {
       await guild.roles.create({ name: def.name, color: def.color, permissions: def.perms });
       console.log(`➕ Created role: ${def.name}`);
     }
   }
 
-  // Categories & Channels
   for (const cat of CATEGORY_DEFS) {
     let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === cat.name);
-    if (!category) {
-      category = await guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory });
-      console.log(`📁 Created category: ${cat.name}`);
-    }
+    if (!category) category = await guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory });
 
-    const channels = CHANNEL_DEFS[cat.name] || [];
-    for (const chName of channels) {
+    for (const chName of (CHANNEL_DEFS[cat.name] || [])) {
       if (!guild.channels.cache.find(c => c.name === chName && c.parentId === category.id)) {
         await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category });
-        console.log(`💬 Created channel: ${chName}`);
       }
     }
   }
@@ -102,10 +89,7 @@ async function ensureServerStructure(guild) {
   // 🛏️ ROOMS 커스터마이징
   const roomsCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS");
   if (roomsCat) {
-    const textCh = guild.channels.cache.filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildText);
-    for (const [, ch] of textCh) await ch.delete().catch(() => {});
-
-    let comm = guild.channels.cache.find(
+    const comm = guild.channels.cache.find(
       c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat.id && c.name === "Communication"
     );
     if (!comm) {
@@ -143,75 +127,37 @@ async function ensureServerStructure(guild) {
 async function sendLog(guild, title, description, color = "#6A5ACD") {
   const logChannel = guild.channels.cache.find(c => c.name.includes("logs"));
   if (!logChannel) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(description)
-    .setColor(color)
-    .setTimestamp();
-
+  const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
   await logChannel.send({ embeds: [embed] });
 }
 
-// ---------- Auto Voice Room Logic ----------
-const AUTO_FLOORS = 5;
-const ROOMS_PER_FLOOR = 3;
-const AUTO_DELETE_DELAY = 5000;
-let timers = new Map();
-
-function allowedRooms() {
-  const nums = [];
-  for (let f = 1; f <= AUTO_FLOORS; f++) for (let r = 1; r <= ROOMS_PER_FLOOR; r++) nums.push(f * 100 + r);
-  return nums;
-}
-function pickRoom(existing) {
-  for (const n of allowedRooms()) if (!existing.includes(n)) return n;
-  return null;
-}
-
-// ;const { ChannelType, PermissionsBitField, EmbedBuilder } = require("discord.js")
-
+// ---------- Voice Room Logic ----------
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
-    const roomsCat = guild.channels.cache.find(
-      c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS"
-    );
-    if (!roomsCat) return;
-
-    const comm = guild.channels.cache.find(
-      c => c.type === ChannelType.GuildVoice &&
-           c.parentId === roomsCat.id &&
-           c.name === "Communication"
-    );
-    if (!comm) return;
+    const roomsCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS");
+    const comm = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat?.id && c.name === "Communication");
+    if (!roomsCat || !comm) return;
 
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    // ✅ 중복 이벤트 방지 (2초 쿨타임)
-    if (member._voiceLock) return;
-    member._voiceLock = true;
-    setTimeout(() => (member._voiceLock = false), 2000);
+    // 🔹 중복 이벤트 방지
+    if (member._roomCooldown) return;
+    member._roomCooldown = true;
+    setTimeout(() => (member._roomCooldown = false), 2500);
 
-    // ✅ Communication 입장 시 새 방 생성
+    // ✅ Communication 입장 → 방 생성
     if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
-      const exist = guild.channels.cache
-        .filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name))
-        .map(c => parseInt(c.name.split(" ")[1]));
-      
-      const nextNum = (() => {
-        for (let i = 101; i <= 999; i++) if (!exist.includes(i)) return i;
-        return null;
-      })();
+      const existingRooms = guild.channels.cache.filter(
+        c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name)
+      );
 
-      if (!nextNum) return;
-
-      // 🔒 생성 중 중복 방지
-      if (guild._creatingRoom) return;
-      guild._creatingRoom = true;
+      const usedNums = [...existingRooms.keys()].map(k => parseInt(existingRooms.get(k).name.split(" ")[1]));
+      let nextNum = 101;
+      while (usedNums.includes(nextNum)) nextNum++;
 
       const room = await guild.channels.create({
         name: `Room ${nextNum}`,
@@ -223,48 +169,28 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       });
 
       await member.voice.setChannel(room).catch(() => {});
-      guild._creatingRoom = false;
-
-      sendLog(
-        guild,
-        "🛏️ 새로운 통화방 생성",
-        `${member.user.tag}님이 **Room ${nextNum}**에 입장했습니다.`,
-        "#00BFFF"
-      );
+      sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${nextNum}**에 입장했습니다.`, "#00BFFF");
     }
 
-    // ✅ 나간 채널이 Room이면 삭제 예약
+    // ✅ 나간 채널이 Room일 때만 삭제
     if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
-      const ch = oldState.channel;
+      const oldRoom = oldState.channel;
 
-      // 이동 중이면 삭제하지 않음
+      // 이동 중이면 삭제 안함
       if (newState.channel && newState.channel.parentId === roomsCat.id) return;
 
-      // 중복 삭제 방지
-      if (ch._deleting) return;
-      ch._deleting = true;
-
       setTimeout(async () => {
-        const updated = guild.channels.cache.get(ch.id);
-        if (updated && updated.members.size === 0) {
-          await updated.delete().catch(() => {});
-          sendLog(
-            guild,
-            "🧹 통화방 삭제",
-            `**${ch.name}**이 비어 있어 삭제되었습니다.`,
-            "#808080"
-          );
+        const target = guild.channels.cache.get(oldRoom.id);
+        if (target && target.members.size === 0) {
+          await target.delete().catch(() => {});
+          sendLog(guild, "🧹 통화방 삭제", `**${oldRoom.name}**이 비어 있어 삭제되었습니다.`, "#808080");
         }
-        ch._deleting = false;
       }, 3000);
     }
   } catch (err) {
     console.error("voiceStateUpdate error:", err);
   }
 });
-
-
-
 
 // ---------- Reaction Role ----------
 const roleMessages = {};
@@ -302,14 +228,13 @@ async function setupCheckIn(guild) {
   console.log("✅ check-in 메시지 생성 완료");
 }
 
-// ✅ 손님 역할만 이모지로 부여
+// ✅ 손님 역할 부여
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
-
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
 
-  const CHECKIN_MESSAGE_ID = "1428420681296642241"; // 실제 메시지 ID 유지
+  const CHECKIN_MESSAGE_ID = "1428420681296642241";
   if (reaction.message.id !== CHECKIN_MESSAGE_ID) return;
   if (reaction.emoji.name !== "🧍") return;
 
@@ -318,18 +243,14 @@ client.on("messageReactionAdd", async (reaction, user) => {
   if (!member) return;
 
   const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
-  if (!guestRole) return console.log("❌ 손님 역할을 찾을 수 없습니다.");
+  if (!guestRole) return;
 
   try {
     const vipRole = guild.roles.cache.find(r => r.name === "💼 VIP 손님");
-    if (vipRole && member.roles.cache.has(vipRole.id)) {
-      await member.roles.remove(vipRole);
-      console.log(`❎ ${member.user.tag}의 VIP 손님 역할 제거`);
-    }
+    if (vipRole && member.roles.cache.has(vipRole.id)) await member.roles.remove(vipRole);
 
     if (!member.roles.cache.has(guestRole.id)) {
       await member.roles.add(guestRole);
-      console.log(`✅ ${member.user.tag}에게 손님 역할 부여`);
       sendLog(guild, "🧍 손님 체크인", `${member.user.tag}님이 체크인하여 **손님 역할**을 부여받았습니다.`, "#FFD700");
     }
 
@@ -350,12 +271,11 @@ client.on("guildMemberRemove", async (m) => {
   sendLog(m.guild, "🚪 손님 퇴장", `${m.user.tag}님이 서버를 떠났습니다.`, "#FF6347");
 });
 
-// ---------- Express (Render port binding fix) ----------
+// ---------- Express ----------
 const app = express();
 app.get("/", (req, res) => res.send("Ardent Hotel Bot is running."));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => console.log(`🌐 Web server running on port ${PORT}`));
 setInterval(() => console.log("💓 Bot heartbeat"), 1000 * 60 * 5);
 
-// ---------- Start ----------
 client.login(TOKEN);
