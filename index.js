@@ -263,10 +263,10 @@ client.on("messageReactionAdd", async (reaction, user) => {
 // ---------- Welcome ----------
 client.on("guildMemberAdd", async (member) => {
   // 채널 ID들
-  const welcomeChannelId = "123456789012345678"; // 👋｜welcome
-  const rulesChannelId = "111111111111111111";   // 🏷️｜rules
-  const introChannelId = "222222222222222222";   // 🪶｜introductions
-  const checkInChannelId = "333333333333333333"; // 📋｜check-in
+  const welcomeChannelId = "1428379298535837889"; // 👋｜welcome
+  const rulesChannelId = "1428379301442748448";   // 🏷️｜rules
+  const introChannelId = "1428379307335618582";   // 🪶｜introductions
+  const checkInChannelId = "1428379339350872172"; // 📋｜check-in
 
   const channel = member.guild.channels.cache.get(welcomeChannelId);
   if (!channel) return;
