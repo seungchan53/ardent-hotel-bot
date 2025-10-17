@@ -261,11 +261,27 @@ client.on("messageReactionAdd", async (reaction, user) => {
 });
 
 // ---------- Welcome ----------
-client.on("guildMemberAdd", async (m) => {
-  const ch = m.guild.channels.cache.find(c => c.name === "💬｜welcome");
-  if (ch) ch.send(`🎉 ${m}님, **${m.guild.name}**에 오신 걸 환영합니다! 🏨\n체크인은 <#📋｜check-in>에서 진행해주세요.`);
-  sendLog(m.guild, "👋 새 손님 입장", `${m.user.tag}님이 서버에 입장했습니다.`, "#00FA9A");
+client.on("guildMemberAdd", async (member) => {
+  // 채널 ID들
+  const welcomeChannelId = "123456789012345678"; // 👋｜welcome
+  const rulesChannelId = "111111111111111111";   // 🏷️｜rules
+  const introChannelId = "222222222222222222";   // 🪶｜introductions
+  const checkInChannelId = "333333333333333333"; // 📋｜check-in
+
+  const channel = member.guild.channels.cache.get(welcomeChannelId);
+  if (!channel) return;
+
+  const embed = {
+    color: 0xf5c542, // 호텔 느낌의 금빛 톤 ✨
+    title: "🎉 Ardent Hotel에 오신 걸 환영합니다! 🏨",
+    description: `${member}님, 환영합니다!\n\n🏷️ **서버 규칙**은 <#${rulesChannelId}>에서 확인해주세요.\n🪶 **자기소개**는 <#${introChannelId}>에 작성해주세요.\n📋 **체크인**은 <#${checkInChannelId}>에서 진행해주세요.\n\n즐거운 시간 보내세요! 🌟`,
+    thumbnail: { url: "https://cdn-icons-png.flaticon.com/512/235/235861.png" }, // 호텔 아이콘
+    footer: { text: "Ardent Hotel 프론트 데스크" },
+  };
+
+  await channel.send({ embeds: [embed] });
 });
+
 
 client.on("guildMemberRemove", async (m) => {
   sendLog(m.guild, "🚪 손님 퇴장", `${m.user.tag}님이 서버를 떠났습니다.`, "#FF6347");
