@@ -6,10 +6,13 @@ const {
   Client,
   GatewayIntentBits,
   Partials,
+  REST,
+  Routes,
+  SlashCommandBuilder,
   PermissionsBitField,
-  ChannelType,
-  EmbedBuilder
+  ChannelType
 } = require("discord.js");
+
 const fs = require("fs-extra");
 const path = require("path");
 const express = require("express");
@@ -132,7 +135,6 @@ async function sendLog(guild, title, description, color = "#6A5ACD") {
 }
 
 // ---------- Voice Room Logic ----------
-const { ChannelType, PermissionsBitField } = require("discord.js");
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
