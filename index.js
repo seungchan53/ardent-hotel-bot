@@ -142,22 +142,33 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (!guild) return;
 
-    const roomsCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS");
-    const comm = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat?.id && c.name === "Communication");
+    const roomsCat = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS"
+    );
+    const comm = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat?.id && c.name === "Communication"
+    );
     if (!roomsCat || !comm) return;
 
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    // 🔹 중복 방 생성을 방지
-    if (member._creatingRoom) return;
-    member._creatingRoom = true;
-    setTimeout(() => (member._creatingRoom = false), 3000);
+    // ✅ 중복 방 생성 방지 (3초 쿨다운)
+    if (member._roomTimeout && Date.now() - member._roomTimeout < 3000) return;
+    member._roomTimeout = Date.now();
 
-    // ✅ Communication 입장 시 방 생성
+    // ✅ Communication 입장 시 방 생성 (정확히 조건 확인)
     if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
+      // 이미 방에 있는지 검사
+      const alreadyInRoom = guild.channels.cache.find(
+        c => c.parentId === roomsCat.id && c.members.has(member.id)
+      );
+      if (alreadyInRoom) return;
+
       const existingRooms = guild.channels.cache.filter(
-        c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name)
+        c => c.parentId === roomsCat.id &&
+             c.type === ChannelType.GuildVoice &&
+             /^Room\s\d{3}$/.test(c.name)
       );
 
       const usedNums = [...existingRooms.values()].map(c => parseInt(c.name.split(" ")[1]));
@@ -165,15 +176,20 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       while (usedNums.includes(nextNum)) nextNum++;
 
       const everyone = guild.roles.everyone;
-      const guestRole = guild.roles.cache.find(r => r.name === "손님");
-      const vipRole = guild.roles.cache.find(r => r.name === "VIP 손님");
+      const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
+      const vipRole = guild.roles.cache.find(r => r.name === "💼 VIP 손님");
 
       const overwrites = [
         { id: everyone.id, deny: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] },
       ];
-
-      if (guestRole) overwrites.push({ id: guestRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] });
-      if (vipRole) overwrites.push({ id: vipRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect] });
+      if (guestRole) overwrites.push({
+        id: guestRole.id,
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect],
+      });
+      if (vipRole) overwrites.push({
+        id: vipRole.id,
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect],
+      });
 
       const room = await guild.channels.create({
         name: `Room ${nextNum}`,
@@ -186,11 +202,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${nextNum}**에 입장했습니다.`, "#00BFFF");
     }
 
-    // ✅ 나간 채널이 Room일 때만 삭제
+    // ✅ Room 나가면 자동 삭제
     if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
       const oldRoom = oldState.channel;
 
-      // 이동 중이면 삭제 안함
+      // 이동 중이면 삭제 안 함
       if (newState.channel && newState.channel.parentId === roomsCat.id) return;
 
       setTimeout(async () => {
@@ -205,6 +221,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     console.error("voiceStateUpdate error:", err);
   }
 });
+
 
 // ---------- Reaction Role ----------
 const roleMessages = {};
