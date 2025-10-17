@@ -181,9 +181,16 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   );
   if (!comm) return;
 
-  // Enter Communication
-  if (newState.channelId === comm.id) {
-    const member = newState.member;
+  const member = newState.member || oldState.member;
+  if (!member || member.user.bot) return;
+
+  // ✅ 방 이동 중 중복 방지 세이프가드
+  if (member.voice?.channelId && member.voice.channel?.parentId === roomsCat.id && /^Room\s\d{3}$/.test(member.voice.channel.name)) {
+    return; // 이미 방에 들어간 상태면 새로 만들지 않음
+  }
+
+  // ✅ "Communication" 입장 시에만 새 방 생성
+  if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
     const exist = guild.channels.cache
       .filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name))
       .map(c => parseInt(c.name.split(" ")[1]));
@@ -198,10 +205,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         { id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
       ],
     });
-    await member.voice.setChannel(room);
-    console.log(`🏠 Created Room ${next} for ${member.user.tag}`);
+
+    await member.voice.setChannel(room).catch(() => {});
     sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${next}**에 입장했습니다.`, "#00BFFF");
 
+    // ✅ 통화방이 실제로 비었을 때만 삭제 예약
     const schedule = (chId) => {
       if (timers.has(chId)) clearTimeout(timers.get(chId));
       const t = setTimeout(async () => {
@@ -217,7 +225,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     schedule(room.id);
   }
 
-  // Leave Room
+  // ✅ 나간 채널이 실제 Room일 때만 삭제 예약
   if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
     const ch = oldState.channel;
     if (ch.members.size === 0) {
@@ -234,6 +242,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     }
   }
 });
+
 
 // ---------- Reaction Role ----------
 const roleMessages = {};
