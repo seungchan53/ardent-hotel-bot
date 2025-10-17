@@ -184,8 +184,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   const member = newState.member || oldState.member;
   if (!member || member.user.bot) return;
 
-  // ✅ 이미 다른 Room에 들어가 있으면 새 방 만들지 않음
-  if (member.voice?.channel?.parentId === roomsCat.id && /^Room\s\d{3}$/.test(member.voice.channel.name)) return;
+  // ✅ 이미 처리 중인 유저면 무시 (중복 방지)
+  if (member._roomCooldown) return;
+  member._roomCooldown = true;
+  setTimeout(() => (member._roomCooldown = false), 2000);
 
   // ✅ Communication 입장 시 새 방 생성
   if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
@@ -212,19 +214,24 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
     const ch = oldState.channel;
 
-    // ⚠️ 이동 중이면 삭제하지 않음 (같은 유저가 다른 채널로 이동했는지 확인)
+    // ⚠️ 이동 중이면 삭제하지 않음
     if (newState.channel && newState.channel.parentId === roomsCat.id) return;
 
-    // ✅ 3초 후에도 비어 있으면 삭제
+    // ✅ 이미 삭제 예약된 방이면 무시
+    if (ch._deleteScheduled) return;
+    ch._deleteScheduled = true;
+
     setTimeout(async () => {
       const updated = guild.channels.cache.get(ch.id);
       if (updated && updated.members.size === 0) {
         await updated.delete().catch(() => {});
         sendLog(guild, "🧹 통화방 삭제", `**${ch.name}**이 비어 있어 삭제되었습니다.`, "#808080");
       }
+      ch._deleteScheduled = false;
     }, 3000);
   }
 });
+
 
 
 // ---------- Reaction Role ----------
