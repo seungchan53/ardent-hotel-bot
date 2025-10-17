@@ -184,12 +184,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   const member = newState.member || oldState.member;
   if (!member || member.user.bot) return;
 
-  // ✅ 방 이동 중 중복 방지 세이프가드
-  if (member.voice?.channelId && member.voice.channel?.parentId === roomsCat.id && /^Room\s\d{3}$/.test(member.voice.channel.name)) {
-    return; // 이미 방에 들어간 상태면 새로 만들지 않음
-  }
+  // ✅ 이미 다른 Room에 들어가 있으면 새 방 만들지 않음
+  if (member.voice?.channel?.parentId === roomsCat.id && /^Room\s\d{3}$/.test(member.voice.channel.name)) return;
 
-  // ✅ "Communication" 입장 시에만 새 방 생성
+  // ✅ Communication 입장 시 새 방 생성
   if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
     const exist = guild.channels.cache
       .filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name))
@@ -208,38 +206,23 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
     await member.voice.setChannel(room).catch(() => {});
     sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${next}**에 입장했습니다.`, "#00BFFF");
-
-    // ✅ 통화방이 실제로 비었을 때만 삭제 예약
-    const schedule = (chId) => {
-      if (timers.has(chId)) clearTimeout(timers.get(chId));
-      const t = setTimeout(async () => {
-        const ch = guild.channels.cache.get(chId);
-        if (ch && ch.members.size === 0) {
-          await ch.delete().catch(() => {});
-          sendLog(guild, "🧹 통화방 삭제", `**Room ${next}**이 비어 있어 삭제되었습니다.`, "#808080");
-        }
-        timers.delete(chId);
-      }, AUTO_DELETE_DELAY);
-      timers.set(chId, t);
-    };
-    schedule(room.id);
   }
 
-  // ✅ 나간 채널이 실제 Room일 때만 삭제 예약
+  // ✅ 나간 채널이 Room일 때만 삭제 예약
   if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
     const ch = oldState.channel;
-    if (ch.members.size === 0) {
-      if (timers.has(ch.id)) clearTimeout(timers.get(ch.id));
-      const t = setTimeout(async () => {
-        const r = guild.channels.cache.get(ch.id);
-        if (r && r.members.size === 0) {
-          await r.delete().catch(() => {});
-          sendLog(guild, "🧹 통화방 삭제", `${oldState.member.user.tag}님이 나가 **${ch.name}**이 삭제되었습니다.`, "#808080");
-        }
-        timers.delete(ch.id);
-      }, AUTO_DELETE_DELAY);
-      timers.set(ch.id, t);
-    }
+
+    // ⚠️ 이동 중이면 삭제하지 않음 (같은 유저가 다른 채널로 이동했는지 확인)
+    if (newState.channel && newState.channel.parentId === roomsCat.id) return;
+
+    // ✅ 3초 후에도 비어 있으면 삭제
+    setTimeout(async () => {
+      const updated = guild.channels.cache.get(ch.id);
+      if (updated && updated.members.size === 0) {
+        await updated.delete().catch(() => {});
+        sendLog(guild, "🧹 통화방 삭제", `**${ch.name}**이 비어 있어 삭제되었습니다.`, "#808080");
+      }
+    }, 3000);
   }
 });
 
