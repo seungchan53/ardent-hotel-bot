@@ -169,7 +169,7 @@ function pickRoom(existing) {
   return null;
 }
 
-const { ChannelType, PermissionsBitField, EmbedBuilder } = require("discord.js");
+// ;const { ChannelType, PermissionsBitField, EmbedBuilder } = require("discord.js")
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
