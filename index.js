@@ -169,68 +169,100 @@ function pickRoom(existing) {
   return null;
 }
 
+const { ChannelType, PermissionsBitField, EmbedBuilder } = require("discord.js");
+
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const guild = newState.guild || oldState.guild;
-  if (!guild) return;
+  try {
+    const guild = newState.guild || oldState.guild;
+    if (!guild) return;
 
-  const roomsCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS");
-  if (!roomsCat) return;
+    const roomsCat = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildCategory && c.name === "🛏️ ROOMS"
+    );
+    if (!roomsCat) return;
 
-  const comm = guild.channels.cache.find(
-    c => c.type === ChannelType.GuildVoice && c.parentId === roomsCat.id && c.name === "Communication"
-  );
-  if (!comm) return;
+    const comm = guild.channels.cache.find(
+      c => c.type === ChannelType.GuildVoice &&
+           c.parentId === roomsCat.id &&
+           c.name === "Communication"
+    );
+    if (!comm) return;
 
-  const member = newState.member || oldState.member;
-  if (!member || member.user.bot) return;
+    const member = newState.member || oldState.member;
+    if (!member || member.user.bot) return;
 
-  // ✅ 이미 처리 중인 유저면 무시 (중복 방지)
-  if (member._roomCooldown) return;
-  member._roomCooldown = true;
-  setTimeout(() => (member._roomCooldown = false), 2000);
+    // ✅ 중복 이벤트 방지 (2초 쿨타임)
+    if (member._voiceLock) return;
+    member._voiceLock = true;
+    setTimeout(() => (member._voiceLock = false), 2000);
 
-  // ✅ Communication 입장 시 새 방 생성
-  if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
-    const exist = guild.channels.cache
-      .filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name))
-      .map(c => parseInt(c.name.split(" ")[1]));
-    const next = pickRoom(exist);
-    if (!next) return;
+    // ✅ Communication 입장 시 새 방 생성
+    if (newState.channelId === comm.id && oldState.channelId !== comm.id) {
+      const exist = guild.channels.cache
+        .filter(c => c.parentId === roomsCat.id && c.type === ChannelType.GuildVoice && /^Room\s\d{3}$/.test(c.name))
+        .map(c => parseInt(c.name.split(" ")[1]));
+      
+      const nextNum = (() => {
+        for (let i = 101; i <= 999; i++) if (!exist.includes(i)) return i;
+        return null;
+      })();
 
-    const room = await guild.channels.create({
-      name: `Room ${next}`,
-      type: ChannelType.GuildVoice,
-      parent: roomsCat.id,
-      permissionOverwrites: [
-        { id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
-      ],
-    });
+      if (!nextNum) return;
 
-    await member.voice.setChannel(room).catch(() => {});
-    sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${next}**에 입장했습니다.`, "#00BFFF");
-  }
+      // 🔒 생성 중 중복 방지
+      if (guild._creatingRoom) return;
+      guild._creatingRoom = true;
 
-  // ✅ 나간 채널이 Room일 때만 삭제 예약
-  if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
-    const ch = oldState.channel;
+      const room = await guild.channels.create({
+        name: `Room ${nextNum}`,
+        type: ChannelType.GuildVoice,
+        parent: roomsCat.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
+        ],
+      });
 
-    // ⚠️ 이동 중이면 삭제하지 않음
-    if (newState.channel && newState.channel.parentId === roomsCat.id) return;
+      await member.voice.setChannel(room).catch(() => {});
+      guild._creatingRoom = false;
 
-    // ✅ 이미 삭제 예약된 방이면 무시
-    if (ch._deleteScheduled) return;
-    ch._deleteScheduled = true;
+      sendLog(
+        guild,
+        "🛏️ 새로운 통화방 생성",
+        `${member.user.tag}님이 **Room ${nextNum}**에 입장했습니다.`,
+        "#00BFFF"
+      );
+    }
 
-    setTimeout(async () => {
-      const updated = guild.channels.cache.get(ch.id);
-      if (updated && updated.members.size === 0) {
-        await updated.delete().catch(() => {});
-        sendLog(guild, "🧹 통화방 삭제", `**${ch.name}**이 비어 있어 삭제되었습니다.`, "#808080");
-      }
-      ch._deleteScheduled = false;
-    }, 3000);
+    // ✅ 나간 채널이 Room이면 삭제 예약
+    if (oldState.channel && /^Room\s\d{3}$/.test(oldState.channel.name)) {
+      const ch = oldState.channel;
+
+      // 이동 중이면 삭제하지 않음
+      if (newState.channel && newState.channel.parentId === roomsCat.id) return;
+
+      // 중복 삭제 방지
+      if (ch._deleting) return;
+      ch._deleting = true;
+
+      setTimeout(async () => {
+        const updated = guild.channels.cache.get(ch.id);
+        if (updated && updated.members.size === 0) {
+          await updated.delete().catch(() => {});
+          sendLog(
+            guild,
+            "🧹 통화방 삭제",
+            `**${ch.name}**이 비어 있어 삭제되었습니다.`,
+            "#808080"
+          );
+        }
+        ch._deleting = false;
+      }, 3000);
+    }
+  } catch (err) {
+    console.error("voiceStateUpdate error:", err);
   }
 });
+
 
 
 
