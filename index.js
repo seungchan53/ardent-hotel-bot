@@ -1,19 +1,15 @@
 // ------------------------------------
-// Ardent Hotel Discord Bot — Stable Full Integration (Anti-Duplicate + Logs Fix)
+// Ardent Hotel Discord Bot — Stable Full Integration (Fixed)
 // ------------------------------------
 
 const {
   Client,
   GatewayIntentBits,
   Partials,
-  REST,
-  Routes,
-  SlashCommandBuilder,
   PermissionsBitField,
   ChannelType,
-  EmbedBuilder // ✅ 이거 추가!
+  EmbedBuilder
 } = require("discord.js");
-
 
 const fs = require("fs-extra");
 const path = require("path");
@@ -133,43 +129,10 @@ async function sendLog(guild, title, description, color = "#6A5ACD") {
   const logChannel = guild.channels.cache.find(c => c.name.includes("logs"));
   if (!logChannel) return;
   const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
-  await logChannel.send({ embeds: [embed] });
-}
-
-// ---------- Voice Room Logic ----------
-import {
-  Client,
-  GatewayIntentBits,
-  ChannelType,
-  PermissionsBitField,
-  EmbedBuilder
-} from "discord.js";
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ],
-});
-
-client.once("ready", () => {
-  console.log(`✅ ${client.user.tag} 작동 중`);
-});
-
-async function sendLog(guild, title, description, color) {
-  const logChannel = guild.channels.cache.find(ch => ch.name === "logs");
-  if (!logChannel) return;
-  const embed = new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(description)
-    .setColor(color)
-    .setTimestamp();
   await logChannel.send({ embeds: [embed] }).catch(() => {});
 }
 
+// ---------- Voice Room Logic ----------
 client.on("voiceStateUpdate", async (oldState, newState) => {
   try {
     const guild = newState.guild || oldState.guild;
@@ -186,7 +149,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     const member = newState.member || oldState.member;
     if (!member || member.user.bot) return;
 
-    // 🔹 중복 이벤트 방지 (시간을 약간 늘림)
+    // 🔹 중복 이벤트 방지
     if (member._roomCooldown) return;
     member._roomCooldown = true;
     setTimeout(() => (member._roomCooldown = false), 4000);
@@ -201,14 +164,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       let nextNum = 101;
       while (usedNums.includes(nextNum)) nextNum++;
 
-      const guestRole = guild.roles.cache.find(r => r.name === "손님");
-      const vipRole = guild.roles.cache.find(r => r.name === "VIP 손님");
+      const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
+      const vipRole = guild.roles.cache.find(r => r.name === "💼 VIP 손님");
 
       const overwrites = [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        },
+        { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       ];
 
       if (guestRole)
@@ -252,9 +212,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 });
 
-client.login("YOUR_TOKEN_HERE");
-
-
+// ✅ 중복된 import, client.login("YOUR_TOKEN_HERE") 제거됨
 
 // ---------- Reaction Role ----------
 const roleMessages = {};
@@ -326,26 +284,24 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
 // ---------- Welcome ----------
 client.on("guildMemberAdd", async (member) => {
-  // 채널 ID들
-  const welcomeChannelId = "1428379298535837889"; // 👋｜welcome
-  const rulesChannelId = "1428379301442748448";   // 🏷️｜rules
-  const introChannelId = "1428379307335618582";   // 🪶｜introductions
-  const checkInChannelId = "1428379339350872172"; // 📋｜check-in
+  const welcomeChannelId = "1428379298535837889";
+  const rulesChannelId = "1428379301442748448";
+  const introChannelId = "1428379307335618582";
+  const checkInChannelId = "1428379339350872172";
 
   const channel = member.guild.channels.cache.get(welcomeChannelId);
   if (!channel) return;
 
   const embed = {
-    color: 0xf5c542, // 호텔 느낌의 금빛 톤 ✨
+    color: 0xf5c542,
     title: "🎉 Ardent Hotel에 오신 걸 환영합니다! 🏨",
     description: `${member}님, 환영합니다!\n\n🏷️ **서버 규칙**은 <#${rulesChannelId}>에서 확인해주세요.\n🪶 **자기소개**는 <#${introChannelId}>에 작성해주세요.\n📋 **체크인**은 <#${checkInChannelId}>에서 진행해주세요.\n\n즐거운 시간 보내세요! 🌟`,
-    thumbnail: { url: "https://cdn-icons-png.flaticon.com/512/235/235861.png" }, // 호텔 아이콘
+    thumbnail: { url: "https://cdn-icons-png.flaticon.com/512/235/235861.png" },
     footer: { text: "Ardent Hotel 프론트 데스크" },
   };
 
   await channel.send({ embeds: [embed] });
 });
-
 
 client.on("guildMemberRemove", async (m) => {
   sendLog(m.guild, "🚪 손님 퇴장", `${m.user.tag}님이 서버를 떠났습니다.`, "#FF6347");
