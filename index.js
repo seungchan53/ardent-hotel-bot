@@ -1,5 +1,5 @@
 // ------------------------------------
-// Ardent Hotel Discord Bot — Render Compatible Full Integration
+// Ardent Hotel Discord Bot — Render Compatible Full Integration + Logs System
 // ------------------------------------
 
 const {
@@ -7,7 +7,8 @@ const {
   GatewayIntentBits,
   Partials,
   PermissionsBitField,
-  ChannelType
+  ChannelType,
+  EmbedBuilder
 } = require("discord.js");
 const fs = require("fs-extra");
 const path = require("path");
@@ -120,7 +121,36 @@ async function ensureServerStructure(guild) {
     }
   }
 
+  // ✅ Logs 채널 권한 제한
+  const logsChannel = guild.channels.cache.find(c => c.name.includes("logs"));
+  if (logsChannel) {
+    const gm = guild.roles.cache.find(r => r.name === "👑 총지배인");
+    const manager = guild.roles.cache.find(r => r.name === "🧳 지배인");
+    if (gm && manager) {
+      await logsChannel.permissionOverwrites.set([
+        { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: gm.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+        { id: manager.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+      ]);
+      console.log("🔒 Logs 채널 권한이 총지배인·지배인 전용으로 설정됨");
+    }
+  }
+
   console.log("✅ Server structure ready!");
+}
+
+// ---------- Logs Helper ----------
+async function sendLog(guild, title, description, color = "#6A5ACD") {
+  const logChannel = guild.channels.cache.find(c => c.name.includes("logs"));
+  if (!logChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(color)
+    .setTimestamp();
+
+  await logChannel.send({ embeds: [embed] });
 }
 
 // ---------- Auto Voice Room Logic ----------
@@ -170,12 +200,16 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     });
     await member.voice.setChannel(room);
     console.log(`🏠 Created Room ${next} for ${member.user.tag}`);
+    sendLog(guild, "🛏️ 새로운 통화방 생성", `${member.user.tag}님이 **Room ${next}**에 입장했습니다.`, "#00BFFF");
 
     const schedule = (chId) => {
       if (timers.has(chId)) clearTimeout(timers.get(chId));
       const t = setTimeout(async () => {
         const ch = guild.channels.cache.get(chId);
-        if (ch && ch.members.size === 0) await ch.delete().catch(() => {});
+        if (ch && ch.members.size === 0) {
+          await ch.delete().catch(() => {});
+          sendLog(guild, "🧹 통화방 삭제", `**Room ${next}**이 비어 있어 삭제되었습니다.`, "#808080");
+        }
         timers.delete(chId);
       }, AUTO_DELETE_DELAY);
       timers.set(chId, t);
@@ -190,7 +224,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       if (timers.has(ch.id)) clearTimeout(timers.get(ch.id));
       const t = setTimeout(async () => {
         const r = guild.channels.cache.get(ch.id);
-        if (r && r.members.size === 0) await r.delete().catch(() => {});
+        if (r && r.members.size === 0) {
+          await r.delete().catch(() => {});
+          sendLog(guild, "🧹 통화방 삭제", `${oldState.member.user.tag}님이 나가 **${ch.name}**이 삭제되었습니다.`, "#808080");
+        }
         timers.delete(ch.id);
       }, AUTO_DELETE_DELAY);
       timers.set(ch.id, t);
@@ -241,45 +278,45 @@ client.on("messageReactionAdd", async (reaction, user) => {
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
 
-  // 🔹 check-in 메시지 ID
   const CHECKIN_MESSAGE_ID = "1428420681296642241"; // 실제 메시지 ID 유지
   if (reaction.message.id !== CHECKIN_MESSAGE_ID) return;
-  if (reaction.emoji.name !== "🧍") return; // 🧍 이모지만 반응
+  if (reaction.emoji.name !== "🧍") return;
 
   const guild = reaction.message.guild;
   const member = guild.members.cache.get(user.id);
   if (!member) return;
 
-  // 🛎️ 손님 역할만 정확히 찾기
   const guestRole = guild.roles.cache.find(r => r.name === "🛎️ 손님");
   if (!guestRole) return console.log("❌ 손님 역할을 찾을 수 없습니다.");
 
   try {
-    // ✅ VIP 역할 제거
     const vipRole = guild.roles.cache.find(r => r.name === "💼 VIP 손님");
     if (vipRole && member.roles.cache.has(vipRole.id)) {
       await member.roles.remove(vipRole);
       console.log(`❎ ${member.user.tag}의 VIP 손님 역할 제거`);
     }
 
-    // ✅ 손님 역할 부여
     if (!member.roles.cache.has(guestRole.id)) {
       await member.roles.add(guestRole);
       console.log(`✅ ${member.user.tag}에게 손님 역할 부여`);
+      sendLog(guild, "🧍 손님 체크인", `${member.user.tag}님이 체크인하여 **손님 역할**을 부여받았습니다.`, "#FFD700");
     }
 
-    // ✅ 반응 숫자 초기화
     await reaction.users.remove(user.id);
   } catch (err) {
     console.error("❌ 역할 부여 중 오류:", err);
   }
 });
 
-
 // ---------- Welcome ----------
 client.on("guildMemberAdd", async (m) => {
   const ch = m.guild.channels.cache.find(c => c.name === "💬｜welcome");
   if (ch) ch.send(`🎉 ${m}님, **${m.guild.name}**에 오신 걸 환영합니다! 🏨\n체크인은 <#📋｜check-in>에서 진행해주세요.`);
+  sendLog(m.guild, "👋 새 손님 입장", `${m.user.tag}님이 서버에 입장했습니다.`, "#00FA9A");
+});
+
+client.on("guildMemberRemove", async (m) => {
+  sendLog(m.guild, "🚪 손님 퇴장", `${m.user.tag}님이 서버를 떠났습니다.`, "#FF6347");
 });
 
 // ---------- Express (Render port binding fix) ----------
