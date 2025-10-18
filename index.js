@@ -315,3 +315,11 @@ app.listen(PORT, "0.0.0.0", () => console.log(`🌐 Web server running on port $
 setInterval(() => console.log("💓 Bot heartbeat"), 1000 * 60 * 5);
 
 client.login(TOKEN);
+
+// ---------- UptimeRobot Ping ----------
+setInterval(() => {
+  fetch(`https://${process.env.RENDER_EXTERNAL_URL || "your-render-service-name.onrender.com"}`)
+    .then(() => console.log("✅ Uptime ping sent"))
+    .catch(() => console.log("⚠️ Uptime ping failed"));
+}, 1000 * 60 * 4); // 4분마다 핑
+
